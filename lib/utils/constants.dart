@@ -20,11 +20,20 @@ class Constants {
 
   // Leave Types
   static const List<String> leaveTypes = [
-    'Sick Leave',
-    'Casual Leave',
-    'Annual Leave',
-    'Personal Leave',
+    'Leave', // From date to date
   ];
+
+  // Permission Types
+  static const List<String> permissionTypes = [
+    '1hr permission',
+    '10 min permission',
+    '5 mins permission',
+  ];
+
+  // All leave and permission types combined
+  static List<String> getAllTypes() {
+    return [...leaveTypes, ...permissionTypes];
+  }
 
   // Leave Status
   static const String statusPending = 'Pending';

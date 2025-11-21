@@ -108,6 +108,22 @@ class LeaveCard extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
+              if (leaveRequest.approverName != null && leaveRequest.approverName!.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Icon(Icons.person_check, size: 16, color: AppTheme.green),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Approved by: ${leaveRequest.approverName}',
+                      style: AppTheme.bodyTextSmall.copyWith(
+                        color: AppTheme.green,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               if (leaveRequest.remarks != null && leaveRequest.remarks!.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Container(

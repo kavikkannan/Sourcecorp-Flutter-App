@@ -23,6 +23,7 @@ class _EmployeeLeaveScreenState extends State<EmployeeLeaveScreen> {
   String? _selectedLeaveType;
   DateTime? _fromDate;
   DateTime? _toDate;
+  DateTime? _permissionDate; // For permissions (single date)
   final _reasonController = TextEditingController();
   bool _isLoading = false;
   bool _isSubmitting = false;
@@ -30,6 +31,9 @@ class _EmployeeLeaveScreenState extends State<EmployeeLeaveScreen> {
   List<LeaveBalanceModel> _balances = [];
   List<LeaveRequestModel> _leaveRequests = [];
   int _numberOfDays = 0;
+
+  bool get _isPermissionType => _selectedLeaveType != null && Constants.permissionTypes.contains(_selectedLeaveType!);
+  bool get _isLeaveType => _selectedLeaveType == 'Leave';
 
   @override
   void initState() {
@@ -71,15 +75,20 @@ class _EmployeeLeaveScreenState extends State<EmployeeLeaveScreen> {
   }
 
   void _calculateDays() {
-    if (_fromDate != null && _toDate != null) {
+    if (_isLeaveType && _fromDate != null && _toDate != null) {
       setState(() {
         _numberOfDays = _toDate!.difference(_fromDate!).inDays + 1;
+      });
+    } else if (_isPermissionType) {
+      // For permissions: 2 times = 1 day, so 1 time = 0.5 days
+      setState(() {
+        _numberOfDays = 1; // We'll track as 1 "time" in the backend
       });
     }
   }
 
-  int _getRemainingLeaves(String leaveType) {
-    final balance = _balances.firstWhere(
+  LeaveBalanceModel _getBalance(String leaveType) {
+    return _balances.firstWhere(
       (b) => b.leaveType == leaveType,
       orElse: () => LeaveBalanceModel(
         leaveType: leaveType,
@@ -88,7 +97,18 @@ class _EmployeeLeaveScreenState extends State<EmployeeLeaveScreen> {
         remainingLeaves: 0,
       ),
     );
-    return balance.remainingLeaves;
+  }
+
+  bool _isUnpaid(String leaveType) {
+    final balance = _getBalance(leaveType);
+    if (_isPermissionType) {
+      // For permissions: 2 times = 1 day paid, after that unpaid
+      // usedLeaves represents "times" used
+      return balance.usedLeaves >= (balance.totalLeaves * 2);
+    } else {
+      // For leave: usedLeaves >= totalLeaves means unpaid
+      return balance.usedLeaves >= balance.totalLeaves;
+    }
   }
 
   Future<void> _submitLeaveRequest() async {
@@ -103,21 +123,28 @@ class _EmployeeLeaveScreenState extends State<EmployeeLeaveScreen> {
       return;
     }
 
-    if (_fromDate == null || _toDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select dates')),
-      );
-      return;
-    }
+    String fromDateStr;
+    String toDateStr;
 
-    final remaining = _getRemainingLeaves(_selectedLeaveType!);
-    if (remaining < _numberOfDays) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Insufficient leave balance. Available: $remaining, Requested: $_numberOfDays'),
-        ),
-      );
-      return;
+    if (_isLeaveType) {
+      if (_fromDate == null || _toDate == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please select from and to dates')),
+        );
+        return;
+      }
+      fromDateStr = DateFormat('yyyy-MM-dd').format(_fromDate!);
+      toDateStr = DateFormat('yyyy-MM-dd').format(_toDate!);
+    } else {
+      // Permission type
+      if (_permissionDate == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please select a date')),
+        );
+        return;
+      }
+      fromDateStr = DateFormat('yyyy-MM-dd').format(_permissionDate!);
+      toDateStr = fromDateStr; // Same date for permissions
     }
 
     setState(() {
@@ -126,8 +153,8 @@ class _EmployeeLeaveScreenState extends State<EmployeeLeaveScreen> {
 
     final result = await ApiService.createLeaveRequest(
       leaveType: _selectedLeaveType!,
-      fromDate: DateFormat('yyyy-MM-dd').format(_fromDate!),
-      toDate: DateFormat('yyyy-MM-dd').format(_toDate!),
+      fromDate: fromDateStr,
+      toDate: toDateStr,
       reason: _reasonController.text.trim(),
     );
 
@@ -138,7 +165,7 @@ class _EmployeeLeaveScreenState extends State<EmployeeLeaveScreen> {
     if (result['success'] == true) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Leave request submitted successfully'),
+          content: Text('Request submitted successfully'),
           backgroundColor: Colors.green,
         ),
       );
@@ -147,6 +174,7 @@ class _EmployeeLeaveScreenState extends State<EmployeeLeaveScreen> {
         _selectedLeaveType = null;
         _fromDate = null;
         _toDate = null;
+        _permissionDate = null;
         _numberOfDays = 0;
         _reasonController.clear();
       });
@@ -154,29 +182,31 @@ class _EmployeeLeaveScreenState extends State<EmployeeLeaveScreen> {
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(result['message'] ?? 'Failed to submit leave request'),
+          content: Text(result['message'] ?? 'Failed to submit request'),
           backgroundColor: Colors.red,
         ),
       );
     }
   }
 
-  Future<void> _selectDate(BuildContext context, bool isFromDate) async {
+  Future<void> _selectDate(BuildContext context, {bool isFromDate = false, bool isToDate = false, bool isPermission = false}) async {
     final DateTime? picked = await showDatePicker(
       context: context,
-      initialDate: isFromDate ? DateTime.now() : (_fromDate ?? DateTime.now()),
+      initialDate: DateTime.now(),
       firstDate: DateTime.now(),
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
 
     if (picked != null) {
       setState(() {
-        if (isFromDate) {
+        if (isPermission) {
+          _permissionDate = picked;
+        } else if (isFromDate) {
           _fromDate = picked;
           if (_toDate != null && _toDate!.isBefore(_fromDate!)) {
             _toDate = null;
           }
-        } else {
+        } else if (isToDate) {
           if (_fromDate == null || picked.isAfter(_fromDate!) || picked.isAtSameMomentAs(_fromDate!)) {
             _toDate = picked;
           } else {
@@ -239,21 +269,30 @@ class _EmployeeLeaveScreenState extends State<EmployeeLeaveScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Leave Balance Cards
-                    Text('Leave Balances', style: AppTheme.heading2),
+                    // Leave Balance Cards - Show "Taken" stats
+                    Text('Leave Statistics', style: AppTheme.heading2),
                     const SizedBox(height: 16),
                     SizedBox(
-                      height: 120,
+                      height: 140,
                       child: ListView.builder(
                         scrollDirection: Axis.horizontal,
-                        itemCount: Constants.leaveTypes.length,
+                        itemCount: Constants.getAllTypes().length,
                         itemBuilder: (context, index) {
-                          final leaveType = Constants.leaveTypes[index];
-                          final remaining = _getRemainingLeaves(leaveType);
+                          final leaveType = Constants.getAllTypes()[index];
+                          final balance = _getBalance(leaveType);
+                          final isUnpaid = _isUnpaid(leaveType);
+                          final isPermission = Constants.permissionTypes.contains(leaveType);
+                          
                           return Container(
-                            width: 150,
+                            width: 160,
                             margin: const EdgeInsets.only(right: 12),
-                            decoration: AppTheme.cardDecoration,
+                            decoration: AppTheme.cardDecoration.copyWith(
+                              color: isUnpaid ? Colors.red.shade50 : Colors.white,
+                              border: Border.all(
+                                color: isUnpaid ? Colors.red : Colors.transparent,
+                                width: 2,
+                              ),
+                            ),
                             padding: const EdgeInsets.all(16),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -264,17 +303,37 @@ class _EmployeeLeaveScreenState extends State<EmployeeLeaveScreen> {
                                   style: AppTheme.bodyTextSmall.copyWith(
                                     fontWeight: FontWeight.bold,
                                   ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
-                                  '$remaining',
+                                  '${balance.usedLeaves}',
                                   style: AppTheme.heading2.copyWith(
-                                    color: AppTheme.primaryOrange,
+                                    color: isUnpaid ? Colors.red : AppTheme.primaryOrange,
                                   ),
                                 ),
                                 Text(
-                                  'remaining',
+                                  isPermission ? 'times taken' : 'days taken',
                                   style: AppTheme.bodyTextSmall,
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    Icon(
+                                      isUnpaid ? Icons.cancel : Icons.check_circle,
+                                      size: 12,
+                                      color: isUnpaid ? Colors.red : Colors.green,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      isUnpaid ? 'Unpaid' : 'Paid',
+                                      style: AppTheme.bodyTextSmall.copyWith(
+                                        color: isUnpaid ? Colors.red : Colors.green,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
@@ -284,7 +343,7 @@ class _EmployeeLeaveScreenState extends State<EmployeeLeaveScreen> {
                     ),
                     const SizedBox(height: 32),
                     // Leave Request Form
-                    Text('Request Leave', style: AppTheme.heading2),
+                    Text('Request Leave/Permission', style: AppTheme.heading2),
                     const SizedBox(height: 16),
                     Form(
                       key: _formKey,
@@ -293,60 +352,100 @@ class _EmployeeLeaveScreenState extends State<EmployeeLeaveScreen> {
                         children: [
                           // Leave Type Dropdown
                           DropdownButtonFormField<String>(
-                            decoration: AppTheme.inputDecoration('Leave Type', Icons.category),
+                            decoration: AppTheme.inputDecoration('Leave/Permission Type', Icons.category),
                             value: _selectedLeaveType,
-                            items: Constants.leaveTypes.map((type) {
-                              final remaining = _getRemainingLeaves(type);
-                              return DropdownMenuItem(
-                                value: type,
-                                child: Text('$type ($remaining remaining)'),
-                              );
-                            }).toList(),
+                            items: [
+                              // Leave option
+                              ...Constants.leaveTypes.map((type) {
+                                final balance = _getBalance(type);
+                                return DropdownMenuItem(
+                                  value: type,
+                                  child: Text('$type (${balance.usedLeaves} days taken)'),
+                                );
+                              }),
+                              // Permission options
+                              ...Constants.permissionTypes.map((type) {
+                                final balance = _getBalance(type);
+                                return DropdownMenuItem(
+                                  value: type,
+                                  child: Text('$type (${balance.usedLeaves} times taken)'),
+                                );
+                              }),
+                            ],
                             onChanged: (value) {
                               setState(() {
                                 _selectedLeaveType = value;
+                                // Reset dates when type changes
+                                _fromDate = null;
+                                _toDate = null;
+                                _permissionDate = null;
+                                _numberOfDays = 0;
                               });
                             },
                             validator: (value) {
                               if (value == null) {
-                                return 'Please select a leave type';
+                                return 'Please select a type';
                               }
                               return null;
                             },
                           ),
                           const SizedBox(height: 16),
-                          // From Date
-                          InkWell(
-                            onTap: () => _selectDate(context, true),
-                            child: InputDecorator(
-                              decoration: AppTheme.inputDecoration('From Date', Icons.calendar_today),
-                              child: Text(
-                                _fromDate == null
-                                    ? 'Select from date'
-                                    : DateFormat('yyyy-MM-dd').format(_fromDate!),
+                          // Date Selection based on type
+                          if (_isLeaveType) ...[
+                            // From Date for Leave
+                            InkWell(
+                              onTap: () => _selectDate(context, isFromDate: true),
+                              child: InputDecorator(
+                                decoration: AppTheme.inputDecoration('From Date', Icons.calendar_today),
+                                child: Text(
+                                  _fromDate == null
+                                      ? 'Select from date'
+                                      : DateFormat('yyyy-MM-dd').format(_fromDate!),
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(height: 16),
-                          // To Date
-                          InkWell(
-                            onTap: () => _selectDate(context, false),
-                            child: InputDecorator(
-                              decoration: AppTheme.inputDecoration('To Date', Icons.calendar_today),
-                              child: Text(
-                                _toDate == null
-                                    ? 'Select to date'
-                                    : DateFormat('yyyy-MM-dd').format(_toDate!),
+                            const SizedBox(height: 16),
+                            // To Date for Leave
+                            InkWell(
+                              onTap: () => _selectDate(context, isToDate: true),
+                              child: InputDecorator(
+                                decoration: AppTheme.inputDecoration('To Date', Icons.calendar_today),
+                                child: Text(
+                                  _toDate == null
+                                      ? 'Select to date'
+                                      : DateFormat('yyyy-MM-dd').format(_toDate!),
+                                ),
                               ),
                             ),
-                          ),
-                          if (_numberOfDays > 0) ...[
+                            if (_numberOfDays > 0) ...[
+                              const SizedBox(height: 8),
+                              Text(
+                                'Number of days: $_numberOfDays',
+                                style: AppTheme.bodyText.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: AppTheme.primaryOrange,
+                                ),
+                              ),
+                            ],
+                          ] else if (_isPermissionType) ...[
+                            // Single Date for Permissions
+                            InkWell(
+                              onTap: () => _selectDate(context, isPermission: true),
+                              child: InputDecorator(
+                                decoration: AppTheme.inputDecoration('Date', Icons.calendar_today),
+                                child: Text(
+                                  _permissionDate == null
+                                      ? 'Select date'
+                                      : DateFormat('yyyy-MM-dd').format(_permissionDate!),
+                                ),
+                              ),
+                            ),
                             const SizedBox(height: 8),
                             Text(
-                              'Number of days: $_numberOfDays',
-                              style: AppTheme.bodyText.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: AppTheme.primaryOrange,
+                              '1 time = 0.5 days (2 times = 1 day)',
+                              style: AppTheme.bodyTextSmall.copyWith(
+                                color: AppTheme.gray600,
+                                fontStyle: FontStyle.italic,
                               ),
                             ),
                           ],
@@ -379,7 +478,7 @@ class _EmployeeLeaveScreenState extends State<EmployeeLeaveScreen> {
                                         valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                                       ),
                                     )
-                                  : const Text('Submit Leave Request'),
+                                  : const Text('Submit Request'),
                             ),
                           ),
                         ],
@@ -393,7 +492,7 @@ class _EmployeeLeaveScreenState extends State<EmployeeLeaveScreen> {
                       const Center(
                         child: Padding(
                           padding: EdgeInsets.all(32),
-                          child: Text('No leave requests yet'),
+                          child: Text('No requests yet'),
                         ),
                       )
                     else
@@ -407,4 +506,3 @@ class _EmployeeLeaveScreenState extends State<EmployeeLeaveScreen> {
     );
   }
 }
-

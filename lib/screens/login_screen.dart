@@ -29,12 +29,12 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _checkAuth() async {
     await StorageService.init();
     if (AuthService.isAuthenticated()) {
-      final isAdmin = AuthService.isAdmin();
+      final isHRAdmin = AuthService.isHROrAdmin();
       if (mounted) {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (context) => isAdmin
+            builder: (context) => isHRAdmin
                 ? const HRDashboardScreen()
                 : const EmployeeLeaveScreen(),
           ),
@@ -59,11 +59,11 @@ class _LoginScreenState extends State<LoginScreen> {
       });
 
       if (result['success'] == true && mounted) {
-        final isAdmin = result['user']?.isAdmin ?? false;
+        final isHRAdmin = AuthService.isHROrAdmin();
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (context) => isAdmin
+            builder: (context) => isHRAdmin
                 ? const HRDashboardScreen()
                 : const EmployeeLeaveScreen(),
           ),

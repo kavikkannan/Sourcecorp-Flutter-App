@@ -35,8 +35,8 @@ class AuthWrapper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (AuthService.isAuthenticated()) {
-      final isAdmin = AuthService.isAdmin();
-      return isAdmin ? const HRDashboardScreen() : const EmployeeLeaveScreen();
+      final isHRAdmin = AuthService.isHROrAdmin();
+      return isHRAdmin ? const HRDashboardScreen() : const EmployeeLeaveScreen();
     }
     return const LoginScreen();
   }

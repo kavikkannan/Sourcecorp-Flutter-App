@@ -122,5 +122,11 @@ class AuthService {
   static bool isAdmin() {
     return StorageService.getIsAdmin() ?? false;
   }
+
+  static bool isHROrAdmin() {
+    final isAdmin = StorageService.getIsAdmin() ?? false;
+    final role = StorageService.getUserRole() ?? '';
+    return isAdmin || role == 'HR';
+  }
 }
 
